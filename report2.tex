@@ -9,6 +9,7 @@
 \usepackage[english]{babel}
 \usepackage{fancyhdr}
 \usepackage{titling}
+\usepackage{listings}
 \renewcommand{\thesection}{Exercise \Alph{section}:}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -17,10 +18,9 @@
 
 % please enter exercise sheet number, your name, matriculation, and a
 % list of students which you worked together with here
-\newcommand{\name}{My name}
-\newcommand{\matriculation}{My matriculation number}
-\newcommand{\fellows}{List of students that I have discussed the
-  project problems and solutions with}
+\newcommand{\name}{Jakob Fischer}
+\newcommand{\matriculation}{01427178}
+\newcommand{\fellows}{None}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %           End of customization         %
@@ -34,7 +34,7 @@
 \setlength{\headsep}{20pt}
 \setlength{\textheight}{680pt}
 \pagestyle{fancy}
-\fancyhf{} 
+\fancyhf{}
 \fancyhead[L]{Cryptocurrencies - Project \projnumber\ - DAO Down}
 \fancyhead[C]{}
 \fancyhead[R]{\name}
@@ -68,7 +68,74 @@
 \end{center}
 
 \section*{Attack report}
-% Fill here the description of the attack your performed 
+
+For the attack, two contracts were created. The abstract contract "Dao" only provides the used method signatures of EDAO, to make needed calls to EDAO easier.
+"Contract" is the contract which will attack EDAO.
+
+\subsection*{Contract variables}
+The contract has three constants:
+\begin{itemize}
+\item \textbf{owner} The address of the owner of the contract. Not really used.
+\item \textbf{target} The address of the target contract, cast to Dao.
+\item \textbf{drainPerCall} The amount of wei which should be withdrawn everytime the contract's fallback function gets called.
+As a result, the target contract must have at least drainPerCall funds for this contract. Otherwise, the if-condition in EDAO.withdraw could not be passed.
+\end{itemize}
+
+\subsection*{Events}
+The contract contains 2 Events to make debugging easier:
+\begin{itemize}
+\item \textbf{BeforeDrain(uint256)} Will be invoked everytime fallback function is
+called and contains the current balance of the target contract, which at the end should be zero.
+\item \textbf{DrainFinished(uint256)} Will be invoked when the target has no balance left
+and the contract stops calling the withdraw function of the target contract. It logs
+the balance of the current contract, which at the end should be the starting balance of the target contract (before \textit{start\_attack} was called).
+\end{itemize}
+
+\subsection*{Functions}
+The contract contains some helper functions for debugging, but which are not attack relevant. They are not mentioned here.
+\begin{itemize}
+\item \textbf{start\_attack} Initiates the first withdraw call to the target contract.
+\item \textbf{fallback function} As long as the target contract has balance left, the function will call the EDAO.withdraw function.
+Usually, 1 ETH (as defined in drainPerCall) will be withdrawn every time.
+If the target contract has less than that value left, it will withdraw the remaining balance.
+Otherwise we could not drain all ETH from EDAO, because of the second part of the if-condition in EDAO.withdraw.
+\end{itemize}
+
+\subsection*{Attack explanation}
+The attack works, because of the order of the payout/decrease funds instructions in the withdraw function of EDAO.
+
+To payout the funds, the function would first call the fallback function of the fund receiver (and ETH will be transfered from EDAO to attacker).
+Only after that call would return, the funds variable would be adjusted, to decrease the remaining funds of the receiver.
+
+However, the attacking contract, in it's fallback function, would call the withdraw function again (and the fallback-call of EDAO would not yet return).
+Since the funds haven't been adjusted already, the attacker would have again enough funds to withdraw, and it's fallback function will be called again by EDAO.
+
+When there is no balance left, the attacker can stop the recursion, by just returning.
+Only after that point the fallback-calls of the withdraw function would return, and the funds can be decreased
+(and underflowed, because funds are unsigned. As I write this, it came to my mind that maybe this could have been another way to drain all funds.).
+
+To pass the if-condition at the beginning of the withdraw function, the attacking contract must have received enough funds first.
+I funded always 1 ETH, and so drainPerCall would be set to the same amount.
+
+Used Sources:
+https://allquantor.at/blockchainbib/pdf/atzei2016survey.pdf
+
+\subsection*{Difficulties}
+One diffulty I encountered, was how I could call other's contracts functions. I tried it with "call" first, but I had some problems with it.
+In the end, I used an abstract contract for calls to EDAO, which seemed the most convenient way.
+
+During the development of the contract, I came across Remix (https://remix.ethereum.org/), which made testing the contract a lot easier.
+Otherwise, it would have been very tedious to compile and deploy the contract for each small fix.
+However, I couldn't get my abstract contract compiled in Remix so I had to add some basic implementation in it.
+
+Another difficulty was the sending of transactions in geth - there seemed to be more than one method of it, all working a little bit different.
+For one method, it wasn't at first clear to me, where I had to supply \textit{from}, \textit{value} and where I had to supply the functions arguments.
+
+\pagebreak
+
+\subsection*{Contract code}
+Not sure if I should put this here, but I do it anyway.
+
+\lstinputlisting{contract.sol}
 
 \end{document}
-
